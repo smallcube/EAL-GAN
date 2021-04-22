@@ -6,14 +6,15 @@ This is the official implementation of “Supervised Anomaly Detection via Condi
 
 Requirements
 ===
-Pytorch 1.4 <br>
+Pytorch >1.6 <br>
 Python 3.7<br>
 
 Getting started
 ===
-(1)	You can run the script “” to train the model proposed in our paper.<br>
+(1)	You can run the script “train_CBG_AN.py” to train the model proposed in our paper.<br>
 (2)	Some of the datasets in our paper are given in the folder “/data_mat”. <br>
 (3)	Models/CB-GAN.py is the proposed model.<br>
+(4)	Models/losses.py is the loss functions.<br>
 
 
 Acknowledgments
