@@ -14,6 +14,8 @@ Getting started
 (1)	You can run the script “” to train the model proposed in our paper.<br>
 (2)	Some of the datasets in our paper are given in the folder “/data_mat”. <br>
 (3)	Models/CB-GAN.py is the proposed model.<br>
+
+
 Acknowledgments
 ===
 some of our codes (e.g., Spectral Normalization) are extracted from the [PyTorch implementation of BigGAN]( https://github.com/ajbrock/BigGAN-PyTorch).
