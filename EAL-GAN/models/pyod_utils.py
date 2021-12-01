@@ -325,6 +325,8 @@ def get_gmean(y, y_pred, threshold=0.5):
     Gmean: float
     """
     #y_pred = get_label_n(y, y_pred)
+    y = y.reshape(-1,)
+    y_pred = y_pred.reshape(-1,)
     y_pred = (y_pred >= threshold).astype('int')
     ones_all = (y==1).sum()
     ones_correct = ((y==1) & (y_pred==1)).sum()
@@ -339,7 +341,7 @@ def AUC_and_Gmean(y_test, y_scores):
     #print(y_test)
     #print(y_scores)
     auc = round(roc_auc_score(y_test, y_scores), ndigits=4)
-    prn = round(precision_n_scores(y_test, y_scores), ndigits=4)
+    #prn = round(precision_n_scores(y_test, y_scores), ndigits=4)
     gmean = round(get_gmean(y_test, y_scores, 0.5), ndigits=4)
 
-    return auc, prn, gmean
+    return auc, gmean

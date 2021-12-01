@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager
 
 from numpy import percentile
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -157,9 +158,9 @@ class Discriminator(nn.Module):
             out = self.output_category(h)
             return out
 
-class CB_GAN(nn.Module):
+class EAL_GAN(nn.Module):
     def __init__(self, args, data_x, data_y, test_x, test_y, visualize=False):
-        super(CB_GAN, self).__init__()
+        super(EAL_GAN, self).__init__()
 
         lr_g = args.lr_g
         lr_d = args.lr_d
@@ -197,7 +198,7 @@ class CB_GAN(nn.Module):
         
         if args.cuda:
             self.netG = nn.DataParallel(self.netG, device_ids=[0,1])
-            self.netG = self.netG.to(device)
+            self.netG = self.netG.to(self.device)
         
         #2: create ensemble of discriminator
         self.NetD_Ensemble = []
@@ -209,7 +210,7 @@ class CB_GAN(nn.Module):
             optimizerD = optim.Adam(netD.parameters(), lr=lr_ds[index], betas=(0.00, 0.99))
             if args.cuda:
                 netD = nn.DataParallel(netD, device_ids=[0,1])
-                netD = netD.to(device)
+                netD = netD.to(self.device)
 
             self.NetD_Ensemble += [netD]
             self.opti_Ensemble += [optimizerD]
@@ -222,12 +223,15 @@ class CB_GAN(nn.Module):
         z, y = prepare_z_y(self.batch_size, self.dim_z, 2, device=self.device)
         # Start iteration
         Best_Measure_Recorded = -1
-        train_history = defaultdict(list)
+        best_auc = 0
+        best_gmean = 0
+        self.train_history = defaultdict(list)
         for epoch in range(self.args.max_epochs):
-            train_history, train_AUC, train_prn, train_Gmean, test_auc, test_prn, test_gmean = self.train_one_epoch(self.data_x, self.data_y, z, y, 1, self.netG, self.optimizerG,
-                                                                                                self.NetD_Ensemble, self.opti_Ensemble, train_history, epoch)
+            train_AUC, train_Gmean, test_auc, test_gmean = self.train_one_epoch(z, y, epoch)
             if train_Gmean*train_AUC > Best_Measure_Recorded:
                 Best_Measure_Recorded = train_Gmean*train_AUC
+                best_auc = test_auc
+                best_gmean = test_gmean
                 states = {
                     'epoch':epoch,
                     'gen_dict':self.netG.state_dict(),
@@ -254,42 +258,40 @@ class CB_GAN(nn.Module):
             netD = self.NetD_Ensemble[i]
             netD.load_state_dict(states['dis_dict'+str(i)])
             self.Best_Ensemble += [netD]
+        
+        return best_auc, best_gmean
     
-    def predict(self, test_x, dis_Ensemble=None):
-        if dis_Ensemble is None:
-            final_pt = None
-            for i in range(self.args.ensemble_num):
-                pt = self.Best_Ensemble[i](test_x, mode=2)
-                if i==0:
-                    final_pt = pt.detach()
-                else:
-                    final_pt += pt
-            final_pt /= self.args.ensemble_num
-            final_pt = final_pt.view(final_pt.shape[0],)
-            
-            ps = final_pt.cpu().detach().numpy()
-            return ps
-        else:
-            final_pt = None
-            for i in range(self.args.ensemble_num):
-                pt = dis_Ensemble[i](test_x, mode=2)
-                if i==0:
-                    final_pt = pt.detach()
-                else:
-                    final_pt += pt
-            
-            final_pt /= self.args.ensemble_num
+    def predict(self, test_x, test_y, dis_Ensemble=None):
+        p = []
+        y = []
 
-            final_pt = final_pt.view(final_pt.shape[0],)
-            
-            ps = final_pt.cpu().detach().numpy()
-            return ps
+        data_size = test_x.shape[0]
+        num_batches = data_size // self.batch_size
+        num_batches = num_batches+1 if data_size%self.batch_size>0 else num_batches
 
-    def train_one_epoch(self, data_x, data_y, z, y, min_label, netG, optimizerG, NetD_Ensemble, 
-                        opti_Ensemble, train_history, epoch=1):
+        for index in range(num_batches):
+            end_pos = min(data_size, (index + 1) * self.batch_size)
+            real_x = test_x[index * self.batch_size: end_pos]
+            real_y = test_y[index * self.batch_size: end_pos]
+            
+            final_pt = 0
+            for i in range(self.args.ensemble_num):
+                pt = self.Best_Ensemble[i](real_x, mode=2) if dis_Ensemble is None else dis_Ensemble[i](real_x, mode=2)
+                final_pt = pt.detach() if i==0 else final_pt+pt
+
+            final_pt /= self.args.ensemble_num
+            final_pt = final_pt.view(-1,)
+            
+            p += [final_pt]
+            y += [real_y]
+        p = torch.cat(p, 0).cpu().detach().numpy()
+        y = torch.cat(y, 0).cpu().detach().numpy()
+        return y, p
+
+    def train_one_epoch(self, z, y, epoch=1):
         #train discriminator & generator for one specific spoch
         
-        data_size = data_x.shape[0]
+        data_size = self.data_x.shape[0]
         #feature_size = data_x.shape[1]
         batch_size = min(self.args.batch_size, data_size)
 
@@ -309,8 +311,8 @@ class CB_GAN(nn.Module):
             self.iterations += 1
         
             end_pos = min(data_size, (index + 1) * batch_size)
-            real_x = data_x[index * batch_size: end_pos]
-            real_y = data_y[index * batch_size: end_pos]
+            real_x = self.data_x[index * batch_size: end_pos]
+            real_y = self.data_y[index * batch_size: end_pos]
             
             real_weights = None
             fake_weights = None
@@ -319,18 +321,18 @@ class CB_GAN(nn.Module):
 
             z.sample_()
             y.sample_()
-            generated_x = netG(z, y)
+            generated_x = self.netG(z, y)
             generated_x = generated_x.detach()
             
             losses = []
             dis_loss = 0
             gen_loss = 0
             #select p% of the training data, label them
-            real_x_selected, real_y_selected, _ = active_sampling_V1(self.args, real_x, real_y, NetD_Ensemble, need_sample=(epoch>0))
+            real_x_selected, real_y_selected, _ = active_sampling_V1(self.args, real_x, real_y, self.NetD_Ensemble, need_sample=(self.iterations>1))
             #print(real_y_selected.shape)
             for i in range(self.args.ensemble_num):
-                optimizer = opti_Ensemble[i]
-                netD = NetD_Ensemble[i]
+                optimizer = self.opti_Ensemble[i]
+                netD = self.NetD_Ensemble[i]
                 #train the GAN with real data
 
                 out_real_fake, out_real_categoy = netD(real_x_selected, real_y_selected)
@@ -345,47 +347,51 @@ class CB_GAN(nn.Module):
                 sum_loss = real_loss+fake_loss
                 dis_loss += sum_loss
 
-                train_history['discriminator_loss_'+str(i)].append(sum_loss)
+                self.train_history['discriminator_loss_'+str(i)].append(sum_loss)
                 losses += [sum_loss]
                 optimizer.zero_grad()
                 sum_loss.backward(retain_graph=True)
                 optimizer.step()
-            train_history['discriminator_loss'].append(dis_loss)
+            self.train_history['discriminator_loss'].append(dis_loss)
             
             #step 2: train the generator
             z.sample_()
             y.sample_()
-            generated_x = netG(z, y)
+            generated_x = self.netG(z, y)
             gen_loss = 0
             gen_weights = None
             gen_cat_weights = None
             for i in range(self.args.ensemble_num):
                 #optimizer = names['optimizerD_' + str(i)]
-                netD = NetD_Ensemble[i]
+                netD = self.NetD_Ensemble[i]
                 output, out_category = netD(generated_x, y)
                 #out_real_fake, out_real_categoy = netD(real_x, real_y)
                 loss, loss_cat, gen_weights, gen_cat_weights = loss_dis_real(output, out_category, y, gen_weights, gen_cat_weights)
                 #loss, gen_weights = loss_gen(output, gen_weights)
                 gen_loss += (loss+loss_cat)
-            train_history['generator_loss'].append(gen_loss)
-            optimizerG.zero_grad()
+            self.train_history['generator_loss'].append(gen_loss)
+            self.optimizerG.zero_grad()
             gen_loss.backward()
-            optimizerG.step()
+            self.optimizerG.step()
 
         
-        y_np = data_y.view(data_y.shape[0],)
-        y_np = y_np.cpu().numpy()
-        y_scores = self.predict(data_x, NetD_Ensemble)
+        y_train, y_pred_train = self.predict(self.data_x, self.data_y, self.NetD_Ensemble)
 
-        auc, prn, gmean = AUC_and_Gmean(y_np, y_scores)
-        train_history['train_auc'].append(auc)
-        train_history['train_prn'].append(prn)
-        train_history['train_Gmean'].append(gmean)
+        y_scores_pandas = pd.DataFrame(y_pred_train)
+        y_scores_pandas.fillna(0, inplace=True)
+        y_pred_train = y_scores_pandas.values
 
-        test_y_scores = self.predict(self.test_x, NetD_Ensemble)
-        test_auc, test_prn, test_gmean = AUC_and_Gmean(self.test_y, test_y_scores)
+        auc, gmean = AUC_and_Gmean(y_train, y_pred_train)
+        self.train_history['train_auc'].append(auc)
+        self.train_history['train_Gmean'].append(gmean)
 
-        return train_history, auc, prn, gmean, test_auc, test_prn, test_gmean
+        y_test, y_pred_test = self.predict(self.test_x, self.test_y, self.NetD_Ensemble)
+        y_scores_pandas = pd.DataFrame(y_pred_test)
+        y_scores_pandas.fillna(0, inplace=True)
+        y_pred_test = y_scores_pandas.values
+        test_auc, test_gmean = AUC_and_Gmean(y_test, y_pred_test)
+
+        return auc, gmean, test_auc, test_gmean
     
 
 
