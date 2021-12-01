@@ -4,7 +4,7 @@ EAL-GAN: Supervised Anomaly Detection via Conditional Generative Adversarial Net
 This is the official implementation of “Supervised Anomaly Detection via Conditional Generative Adversarial Network and Ensemble Active Learning”. Our paper has been submitted to the IEEE for possible publication, and a Preprint version of the manuscript can be found in Arxiv. If you use the codes in this repo, please cite the paper as follows:<br>
 
 > @misc{chen2021supervised,
-          &nbsp;&nbsp;&nbsp;&nbsp; title={Supervised Anomaly Detection via Conditional Generative Adversarial Network and Ensemble Active Learning}, 
+          &nbsp;&nbsp;&nbsp;&nbsp; title={Supervised Anomaly Detection via Conditional Generative Adversarial Network and Ensemble Active Learning}, <br>
         &nbsp;&nbsp;&nbsp;&nbsp;author={Zhi Chen and Jiang Duan and Li Kang and Guoping Qiu},
       &nbsp;&nbsp;&nbsp;&nbsp;year={2021},
       &nbsp;&nbsp;&nbsp;&nbsp;eprint={2104.11952},
