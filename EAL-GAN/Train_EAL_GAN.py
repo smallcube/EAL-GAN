@@ -40,7 +40,7 @@ if __name__=='__main__':
                   #  'lympho.mat',
                   #  'mnist.mat',
                   #  'musk.mat',
-                  #  'optdigits.mat',
+                   'optdigits.mat',
                   #  'pendigits.mat',
                   #  'pima.mat',
                   #  'satellite.mat',
